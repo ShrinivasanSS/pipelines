@@ -9,25 +9,36 @@ class Pipeline:
         # You can add your custom valves here.
         AZURE_OPENAI_API_KEY: str
         AZURE_OPENAI_ENDPOINT: str
-        AZURE_OPENAI_DEPLOYMENT_NAME: str
         AZURE_OPENAI_API_VERSION: str
+        AZURE_OPENAI_MODELS: str
+        AZURE_OPENAI_MODEL_NAMES: str
 
     def __init__(self):
-        # Optionally, you can set the id and name of the pipeline.
-        # Best practice is to not specify the id so that it can be automatically inferred from the filename, so that users can install multiple versions of the same pipeline.
-        # The identifier must be unique across all pipelines.
-        # The identifier must be an alphanumeric string that can include underscores or hyphens. It cannot contain spaces, special characters, slashes, or backslashes.
-        # self.id = "azure_openai_pipeline"
-        self.name = "Azure OpenAI Pipeline"
+        self.type = "manifold"
+        self.name = "Azure OpenAI: "
         self.valves = self.Valves(
             **{
                 "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY", "your-azure-openai-api-key-here"),
                 "AZURE_OPENAI_ENDPOINT": os.getenv("AZURE_OPENAI_ENDPOINT", "your-azure-openai-endpoint-here"),
-                "AZURE_OPENAI_DEPLOYMENT_NAME": os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "your-deployment-name-here"),
                 "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+                "AZURE_OPENAI_MODELS": os.getenv("AZURE_OPENAI_MODELS", "gpt-35-turbo;gpt-4o"),
+                "AZURE_OPENAI_MODEL_NAMES": os.getenv("AZURE_OPENAI_MODEL_NAMES", "GPT-35 Turbo;GPT-4o"),
             }
         )
+        self.set_pipelines()
         pass
+
+    def set_pipelines(self):
+        models = self.valves.AZURE_OPENAI_MODELS.split(";")
+        model_names = self.valves.AZURE_OPENAI_MODEL_NAMES.split(";")
+        self.pipelines = [
+            {"id": model, "name": name} for model, name in zip(models, model_names)
+        ]
+        print(f"azure_openai_manifold_pipeline - models: {self.pipelines}")
+        pass
+
+    async def on_valves_updated(self):
+        self.set_pipelines()        
 
     async def on_startup(self):
         # This function is called when the server is started.
@@ -53,11 +64,11 @@ class Pipeline:
             "Content-Type": "application/json",
         }
 
-        url = f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{self.valves.AZURE_OPENAI_DEPLOYMENT_NAME}/chat/completions?api-version={self.valves.AZURE_OPENAI_API_VERSION}"
+        url = f"{self.valves.AZURE_OPENAI_ENDPOINT}/openai/deployments/{model_id}/chat/completions?api-version={self.valves.AZURE_OPENAI_API_VERSION}"
 
         allowed_params = {'messages', 'temperature', 'role', 'content', 'contentPart', 'contentPartImage',
-                          'enhancements', 'data_sources', 'n', 'stream', 'stop', 'max_tokens', 'presence_penalty',
-                          'frequency_penalty', 'logit_bias', 'user', 'function_call', 'functions', 'tools',
+                          'enhancements', 'dataSources', 'n', 'stream', 'stop', 'max_tokens', 'presence_penalty',
+                          'frequency_penalty', 'logit_bias', 'user', 'function_call', 'funcions', 'tools',
                           'tool_choice', 'top_p', 'log_probs', 'top_logprobs', 'response_format', 'seed'}
         # remap user field
         if "user" in body and not isinstance(body["user"], str):
@@ -67,8 +78,6 @@ class Pipeline:
         if len(body) != len(filtered_body):
             print(f"Dropped params: {', '.join(set(body.keys()) - set(filtered_body.keys()))}")
 
-        # Initialize the response variable to None.
-        r = None
         try:
             r = requests.post(
                 url=url,
